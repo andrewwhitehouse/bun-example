@@ -1,18 +1,41 @@
 import { type Context, Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
+import { Database } from 'bun:sqlite';
 
 type Dog = { id: string; name: string; breed: string };
-const dogs = new Map<string, Dog>();
+//const dogs = new Map<string, Dog>();
+
+const db = new Database("dogs.db");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS dogs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    breed TEXT NOT NULL
+  )
+`);
 
 function addDog(name: string, breed: string): Dog {
-    const id = crypto.randomUUID(); // standard web API
+    const id = crypto.randomUUID(); 
     const dog = { id, name, breed };
-    dogs.set(id, dog);
+
+    db.query(
+        `INSERT INTO dogs (id, name, breed)
+         VALUES (?, ?, ?)`,
+      ).run(id, dog.name, dog.breed);
+
     return dog;
 }
 
-addDog('Comet', 'Whippet');
-addDog('Oscar', 'German Shorthaired Pointer');
+function initDatabase() {
+    const result = 
+        db.query(`SELECT COUNT(*) as rows FROM dogs`).get() as {rows: number};
+
+    if (result.rows == 0) {
+        console.log("Initialising database");
+        addDog('Comet', 'Whippet');
+        addDog('Oscar', 'German Shorthaired Pointer');
+    }
+}
 
 function dogRow(dog: Dog) {
 
@@ -36,9 +59,15 @@ function dogRow(dog: Dog) {
 }
 
 const app = new Hono();
+
+initDatabase();
+
 app.use('/*', serveStatic({ root: './public' }));
 
 app.get('/table-rows', (c: Context) => {
+
+    const dogs = db.query("SELECT * FROM dogs").all() as Dog[];
+    
     const sortedDogs = Array.from(dogs.values()).sort((a, b) =>
         a.name.localeCompare(b.name)
     );
@@ -55,7 +84,11 @@ app.post('/dog', async (c: Context) => {
 
 app.delete('/dog/:id', (c: Context) => {
     const id = c.req.param('id');
-    dogs.delete(id);
+    
+    db.query(
+        `DELETE FROM dogs WHERE id = ?`,
+      ).run(id);
+    
     return c.body(null);
 });
 
